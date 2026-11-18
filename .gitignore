@@ -1,0 +1,26 @@
+# Build and dependencies
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Never commit credentials or data (design v2, SEC-11)
+client_secret*.json
+*.secret
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.log
+*.plist
+*.csv.gz
+reports/
+
+# Local tools (the pinned gitleaks binary)
+.tools/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/

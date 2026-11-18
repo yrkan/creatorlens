@@ -1,0 +1,48 @@
+{
+  "name": "creatorlens",
+  "version": "0.1.0",
+  "description": "Read-only channel analytics for YouTube, for your AI assistant (MCP): local, two read-only scopes, Google APIs only.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "author": "yrkan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yrkan/creatorlens.git"
+  },
+  "keywords": [
+    "youtube",
+    "youtube-analytics",
+    "youtube-api",
+    "mcp",
+    "mcp-server",
+    "analytics"
+  ],
+  "bin": {
+    "creatorlens": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "packageManager": "pnpm@10.28.0+sha512.05df71d1421f21399e053fde567cea34d446fa02c76571441bfc1c7956e98e363088982d940465fd34480d4d90a0668bc12362f8aa88000a64e83d0b0e47be48",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "pnpm run build && node --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "test:only": "node --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "deps:count": "node scripts/count-deps.mjs",
+    "secrets:scan": "sh scripts/gitleaks.sh git",
+    "hooks:install": "sh scripts/install-hooks.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "5.9.3"
+  }
+}

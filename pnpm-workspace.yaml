@@ -1,0 +1,11 @@
+# Supply-chain settings (design v2, SEC-18). There is no workspace: this file only carries settings.
+# A version must be a week old before pnpm installs it.
+minimumReleaseAge: 10080
+# Refuse a version whose publishing trust (provenance, trusted publisher) is lower than an earlier one's.
+trustPolicy: no-downgrade
+# Fail when a dependency wants to run a build script that is not reviewed below.
+strictDepBuilds: true
+# Transitive dependencies may come only from the registry (no git, tarball or file sources).
+blockExoticSubdeps: true
+# No dependency may run install scripts; none needs to.
+onlyBuiltDependencies: []
