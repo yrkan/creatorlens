@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses a commit that carries a secret (design v2, SEC-11). Installed by: sh scripts/install-hooks.sh
+exec sh "$(git rev-parse --show-toplevel)/scripts/gitleaks.sh" staged
