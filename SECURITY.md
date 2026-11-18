@@ -32,8 +32,9 @@ servers that send mail or post messages.
   download routes; the access token is never sent to another host; no credential is sent when
   `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off.
 - **The state-changing calls are not reachable from the server.** Job creation and deletion and token revocation sit in
-  `src/admin/`, which `serve` never imports (a test walks its imports), and they run only from a terminal with a typed
-  confirmation. The server sets a one-way read-only latch on its HTTP client.
+  `src/admin/`, which `serve` never imports (a test walks its imports), and the server sets a one-way read-only latch
+  on its HTTP client. On the command line they need a terminal, a typed confirmation and a shell no AI assistant
+  started (below: what that does not stop).
 - **Strangers' text is cleaned and wrapped.** Normalised to NFC; control, bidi, zero-width, tag and variation-selector
   characters removed; cut (comments at 500 characters, descriptions at 1,000); returned only as
   `{"untrusted": "…"}`, `sql_query` included (the SQL child reports when a result read an `untrusted_*` column).
@@ -57,12 +58,17 @@ can do the same, and can read the data folder.
 
 So:
 
-- install the server with `--scope local` in a folder used only for analysis, and in that folder's settings deny
-  `Bash(security find-generic-password*)`, the state-changing creatorlens commands and reads of the data folder (the
-  README and `creatorlens mcp-config` give the exact block);
-- keep the shell, web fetches and other servers' write tools on "ask" while an assistant reads strangers' text;
-- the typed confirmations stop an assistant's shell (it has no terminal); they are a speed bump, not a wall, against
-  code that controls a terminal.
+- install the server with `--scope local` in a folder used only for analysis, and keep the assistant's shell, web
+  fetches and other servers' write tools on "ask" there (no blanket `Bash` allow, no auto-approve mode), above all
+  while it reads strangers' text. This is the wall;
+- in that folder's settings, deny the Keychain read (`Bash(*security find-generic-password*)`), the state-changing
+  creatorlens commands and reads of the data folder (the README and `creatorlens mcp-config` give the exact block).
+  A Bash rule matches the command as written, so these catch a direct attempt and miss a wrapped one (`sh -c`,
+  `script`, a variable): a net, not a wall;
+- the state-changing commands refuse a shell without a terminal and a shell that carries `CLAUDE_CODE_CHILD_SESSION`
+  (Claude Code sets it in every command its tools run, from version 2.1.172), and they ask for a typed confirmation.
+  This is a speed bump, not a wall: a shell can open a pseudo-terminal (`script`, `expect`) and type the phrase, and
+  a shell that removes the variable on purpose passes.
 
 ## If a token or secret leaks
 

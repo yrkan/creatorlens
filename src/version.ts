@@ -16,8 +16,8 @@ export const NODE_PINNED = '26.7.0';
  * The version of docs/privacy.md and docs/terms.md that `setup` asks the operator to accept (Developer Policies III.A,
  * III.E.3.c). Changing either document changes TERMS_SHA256; test/terms.test.ts then fails until this version moves.
  */
-export const TERMS_VERSION = '2026-11-18';
-export const TERMS_SHA256 = '0c5c3a0dfb3970251300c1d9b98ac2c3f955d1eaa82954f6ab2625f461b1f41f';
+export const TERMS_VERSION = '2026-11-18.2';
+export const TERMS_SHA256 = '5deae24de370089a1eaee40ccd97b3a434995359c654d6538804dce67b03dd37';
 
 export const KEYCHAIN_SERVICE = 'creatorlens';
 export const LAUNCH_LABEL_PREFIX = 'io.github.yrkan.creatorlens';

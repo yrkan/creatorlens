@@ -20,6 +20,8 @@ import { pacificDay, daysBetweenDays } from './util/pacific.ts';
 import { DAY_MS, parseIso } from './util/clock.ts';
 import { APP_VERSION } from './version.ts';
 import { sha256Hex } from './util/fsx.ts';
+import { clearMetadataSql } from './store/schema.ts';
+import { TermsNotAccepted } from './config.ts';
 import zlib from 'node:zlib';
 
 export type Trigger = 'schedule' | 'manual' | 'serve';
@@ -27,6 +29,12 @@ export type Trigger = 'schedule' | 'manual' | 'serve';
 export interface SyncOptions {
   full: boolean;
   trigger: Trigger;
+  /**
+   * False when the current terms are not accepted (after an upgrade that changed them). The run then does only what
+   * the policy requires whatever the terms: the clocks, with the 30-day confirmation that can reach Google, and their
+   * purges. It downloads nothing, records the refusal as a failed run and so notifies like any failure.
+   */
+  termsAccepted?: boolean;
 }
 
 export interface SyncResult {
@@ -99,17 +107,15 @@ function upsertVideos(s: ProfileSession, videos: readonly VideoInfo[], uploadIds
       now,
     );
   }
-  // A video that is no longer in the uploads, or no longer returned, is gone: its metadata is cleared at once (API-11).
+  // A video that is no longer in the uploads, or no longer returned, is gone: it can never be refreshed again, so every
+  // non-statistical field is cleared at once (API-11, III.E.4.c); only its id stays, the key of its statistics.
   const returned = new Set(videos.map((v) => v.id));
   const inUploads = new Set(uploadIds);
   const known = s.db.prepare('SELECT id FROM videos WHERE removed_at IS NULL').all() as Array<{ id: string }>;
   for (const k of known) {
     if (!returned.has(k.id) || !inUploads.has(k.id)) {
       s.db
-        .prepare(
-          `UPDATE videos SET removed_at = ?, metadata_expired_at = ?, title = NULL, description = NULL, tags_json = NULL,
-             default_language = NULL, default_audio_language = NULL, category_id = NULL WHERE id = ?`,
-        )
+        .prepare(`UPDATE videos SET removed_at = ?, metadata_expired_at = ?, ${clearMetadataSql('videos')} WHERE id = ?`)
         .run(now, now, k.id);
     }
   }
@@ -176,61 +182,71 @@ export async function runSync(ctx: Ctx, s: ProfileSession, opts: SyncOptions): P
     if (pre.view.state === 'purged') throw new Error('This profile was purged. Run auth to start again.');
     if (pre.view.state === 'unbound') throw new Error(`Profile "${s.pp.name}" is not signed in. Run "creatorlens auth --profile ${s.pp.name}".`);
     if (pre.view.state === 'auth_lost') throw new Error(pre.view.banners[0] ?? 'The sign-in is lost.');
+    // The clocks above run whatever the terms say; fetching data needs the current terms accepted.
+    if (opts.termsAccepted === false) throw new TermsNotAccepted();
 
     // 1. Identity: the token must still belong to the bound channel (CMP-12, API-24).
     const bound = getMeta(s.db, 'channel_id');
     const ch = await api.channelMine();
     if (!ch) throw new Error('The signed-in account has no channel (no_channel). Run auth and pick the Brand Account that owns the channel.');
     if (ch.id !== bound) {
-      logEvent(s.db, ctx.clock.now(), 'binding', `token now returns ${ch.id}, bound to ${bound}`);
+      logEvent(s.db, ctx.clock.now(), 'binding', 'the sign-in returns another channel; nothing synced');
       throw new Error(`This sign-in now belongs to another channel (${ch.id}); the profile is bound to ${bound}. Nothing was synced. Create a new profile for the other channel.`);
     }
     heartbeat(s.pp.lock, 'sync', () => ctx.clock.now());
 
-    // 2. Reporting: lists, lifecycle and downloads.
-    const now = nowIso();
-    const types = await api.reportTypes();
-    upsertTypes(s, types, now);
-    const jobs = await api.jobs();
-    upsertJobs(s, jobs, now, s.cfg.client?.projectNumber ?? null);
-    const plan = planJobs(types, jobs, ctx.clock.now());
-    if (plan.create.length) {
-      result.warnings.push(
-        `${plan.create.length} report type(s) have no job: ${plan.create.join(', ')}. Run "creatorlens reporting enable --profile ${s.pp.name}" in your Terminal.`,
-      );
-    }
-    for (const d of plan.deprecating) {
-      result.warnings.push(
-        `${d.reportTypeId} is deprecated on ${d.deprecateTime.slice(0, 10)}${d.successor ? `; its successor ${d.successor} ${plan.create.includes(d.successor) ? 'needs "reporting enable"' : 'has a job'}` : '; no successor is offered yet'}.`,
-      );
-    }
-    for (const e of plan.expiring) result.warnings.push(`Job ${e.reportTypeId} expires on ${e.expireTime.slice(0, 10)}.`);
-    if (opts.full) {
-      const bad = verifyArchive(s);
-      if (bad.length) result.warnings.push(`${bad.length} archived file(s) were missing or altered and are fetched again where Google still has them.`);
-    }
-    const undownloaded: Array<{ report_id: string; job_expire_time: string | null; error: string }> = [];
-    for (const job of jobs.filter((j) => !j.systemManaged)) {
-      const reports = await api.reports(job.id);
-      result.reportsListed += reports.length;
-      for (const r of reports) {
-        try {
-          if (await archiveReport(s, api, job.reportTypeId, r)) result.reportsDownloaded++;
-        } catch (e) {
-          result.reportsFailed++;
-          undownloaded.push({ report_id: r.id, job_expire_time: r.jobExpireTime ?? null, error: errorText(e, 300) });
-          if (e instanceof RouteRefused) s.log.error(errorText(e));
-        }
+    // 2. Reporting: lists, lifecycle and downloads. A failure here (the API disabled, its quota spent) is kept and
+    // reported at the end, so the own-metadata refresh below still runs (API-11: refreshed at every sync even when
+    // other steps fail).
+    let reportingError: unknown;
+    try {
+      const now = nowIso();
+      const types = await api.reportTypes();
+      upsertTypes(s, types, now);
+      const jobs = await api.jobs();
+      upsertJobs(s, jobs, now, s.cfg.client?.projectNumber ?? null);
+      const plan = planJobs(types, jobs, ctx.clock.now());
+      if (plan.create.length) {
+        result.warnings.push(
+          `${plan.create.length} report type(s) have no job: ${plan.create.join(', ')}. Run "creatorlens reporting enable --profile ${s.pp.name}" in your Terminal.`,
+        );
       }
-      heartbeat(s.pp.lock, 'sync', () => ctx.clock.now());
-    }
-    markSuperseded(s);
-    setMeta(s.db, 'undownloaded', JSON.stringify(undownloaded));
-    const soon = undownloaded.filter(
-      (u) => u.job_expire_time && Date.parse(u.job_expire_time) - ctx.clock.now().getTime() < 7 * DAY_MS,
-    );
-    if (soon.length) {
-      await ctx.notify('creatorlens', `Profile ${s.pp.name}: ${soon.length} report(s) expire at Google within 7 days and could not be downloaded.`);
+      for (const d of plan.deprecating) {
+        result.warnings.push(
+          `${d.reportTypeId} is deprecated on ${d.deprecateTime.slice(0, 10)}${d.successor ? `; its successor ${d.successor} ${plan.create.includes(d.successor) ? 'needs "reporting enable"' : 'has a job'}` : '; no successor is offered yet'}.`,
+        );
+      }
+      for (const e of plan.expiring) result.warnings.push(`Job ${e.reportTypeId} expires on ${e.expireTime.slice(0, 10)}.`);
+      if (opts.full) {
+        const bad = verifyArchive(s);
+        if (bad.length) result.warnings.push(`${bad.length} archived file(s) were missing or altered and are fetched again where Google still has them.`);
+      }
+      const undownloaded: Array<{ report_id: string; job_expire_time: string | null; error: string }> = [];
+      for (const job of jobs.filter((j) => !j.systemManaged)) {
+        const reports = await api.reports(job.id);
+        result.reportsListed += reports.length;
+        for (const r of reports) {
+          try {
+            if (await archiveReport(s, api, job.reportTypeId, r)) result.reportsDownloaded++;
+          } catch (e) {
+            result.reportsFailed++;
+            undownloaded.push({ report_id: r.id, job_expire_time: r.jobExpireTime ?? null, error: errorText(e, 300) });
+            if (e instanceof RouteRefused) s.log.error(errorText(e));
+          }
+        }
+        heartbeat(s.pp.lock, 'sync', () => ctx.clock.now());
+      }
+      markSuperseded(s);
+      setMeta(s.db, 'undownloaded', JSON.stringify(undownloaded));
+      const soon = undownloaded.filter(
+        (u) => u.job_expire_time && Date.parse(u.job_expire_time) - ctx.clock.now().getTime() < 7 * DAY_MS,
+      );
+      if (soon.length) {
+        await ctx.notify('creatorlens', `Profile ${s.pp.name}: ${soon.length} report(s) expire at Google within 7 days and could not be downloaded.`);
+      }
+    } catch (e) {
+      if (e instanceof OAuthError) throw e; // a lost sign-in stops everything (the clocks already noted it)
+      reportingError = e;
     }
 
     // 3. Own metadata (III.E.4.c: refreshed at least every 30 days; done on every run).
@@ -260,6 +276,7 @@ export async function runSync(ctx: Ctx, s: ProfileSession, opts: SyncOptions): P
         await notifyOnce(ctx, s, 'stale', `Profile ${s.pp.name}: the newest report is ${age} days old.`);
       }
     }
+    if (reportingError !== undefined) throw reportingError;
     result.ok = result.reportsFailed === 0;
     if (result.reportsFailed) result.error = `${result.reportsFailed} report(s) could not be downloaded; the next run retries.`;
   } catch (e) {

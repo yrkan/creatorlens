@@ -15,6 +15,7 @@ import { HttpError } from './google/http.ts';
 import { HOSTS } from './google/routes.ts';
 import { CLIENT_ACCOUNT } from './secrets.ts';
 import { errorText } from './util/redact.ts';
+import { escapeForTerminal } from './util/text.ts';
 import { pacificDay } from './util/pacific.ts';
 import { addDays } from './util/clock.ts';
 import { APP_VERSION, NODE_MIN, NODE_PINNED, SCHEMA_VERSION } from './version.ts';
@@ -235,11 +236,13 @@ export async function runDoctor(ctx: Ctx, opts: { profile?: string; offline: boo
 
 export function formatDoctor(r: DoctorReport): string {
   const mark = (s: CheckStatus): string => ({ pass: 'ok  ', warn: 'WARN', fail: 'FAIL', skip: '--  ' })[s];
+  // A detail can carry the channel's title or handle, or Google's error text: one printer for the terminal (SEC-15).
+  const line = (c: Check): string => `  ${mark(c.status)} ${c.id}: ${escapeForTerminal(c.detail)}`;
   const lines = [`creatorlens ${r.app.version} doctor: ${r.ok ? 'GREEN' : 'RED'}`];
-  for (const c of r.host) lines.push(`  ${mark(c.status)} ${c.id}: ${c.detail}`);
+  for (const c of r.host) lines.push(line(c));
   for (const p of r.profiles) {
     lines.push(`profile ${p.profile}: ${p.ok ? 'green' : 'red'}`);
-    for (const c of p.checks) lines.push(`  ${mark(c.status)} ${c.id}: ${c.detail}`);
+    for (const c of p.checks) lines.push(line(c));
   }
   return lines.join('\n');
 }

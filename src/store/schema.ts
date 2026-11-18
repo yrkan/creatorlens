@@ -196,5 +196,40 @@ export const REGISTRY: Record<string, TableInfo> = {
   },
 };
 
-/** The tables a full purge empties (everything that came from the API about the channel). */
-export const PURGED_TABLES = ['channel', 'videos', 'report_types', 'jobs', 'report_files', 'sync_log'] as const;
+/**
+ * The tables a full purge empties: everything that came from the API about the channel, and the bookkeeping that ran
+ * alongside it (the sync log and the event log), so nothing of the channel outlives a revocation. Only `meta` keeps a
+ * few keys of its own (schema and app version, the secret store, when and why the purge ran).
+ */
+export const PURGED_TABLES = ['channel', 'videos', 'report_types', 'jobs', 'report_files', 'sync_log', 'events'] as const;
+
+/**
+ * The non-statistical fields the 30-day metadata clock clears (Developer Policies III.E.4.c), and that a removed
+ * video loses at once: every column of `videos` and `channel` that came from the Data API (or is computed from one),
+ * except the ids. test/store.test.ts holds that no such column is left out.
+ */
+export const METADATA_COLUMNS = {
+  videos: [
+    'title',
+    'description',
+    'tags_json',
+    'published_at_utc',
+    'published_day_pt',
+    'duration_s',
+    'privacy',
+    'made_for_kids',
+    'default_language',
+    'default_audio_language',
+    'category_id',
+    'live_broadcast',
+  ],
+  channel: ['title', 'handle', 'country', 'published_at'],
+} as const satisfies Record<'videos' | 'channel', readonly string[]>;
+
+/** The id columns of `videos` and `channel` that stay when their metadata is cleared. */
+export const METADATA_KEEP = { videos: ['id'], channel: ['id', 'uploads_playlist_id'] } as const;
+
+/** `SET a = NULL, b = NULL, …` for a table's metadata columns (fixed names, never input). */
+export function clearMetadataSql(table: 'videos' | 'channel'): string {
+  return METADATA_COLUMNS[table].map((c) => `${c} = NULL`).join(', ');
+}

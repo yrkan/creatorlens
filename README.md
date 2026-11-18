@@ -11,7 +11,7 @@ LLC.
 > MCP server answers `status`, `describe_store` and `sql_query`. The analysis tools (`channel_review`, `video_report`,
 > `video_card`, `video_retention`, `channel_traffic`, `channel_reach`, `channel_audience`, `compare`, `metadata_check`
 > and more) arrive in v1, which parses the archive v0 keeps. Nothing of the history is lost meanwhile: Google keeps
-> report files for 60 days, and creatorlens keeps them for good.
+> report files for 60 days, and creatorlens keeps them for as long as your authorization holds.
 >
 > **Not on npm.** Install from this repository; never run an `npx creatorlens` line, which would fetch someone else's
 > package.
@@ -27,14 +27,16 @@ LLC.
 
 ## The safety model
 
-- **Two read-only scopes:** `youtube.readonly` and `yt-analytics.readonly`. A grant with any other scope is revoked and
-  refused. creatorlens has no way to upload, edit, delete, comment or change your channel.
+- **Two read-only scopes:** `youtube.readonly` and `yt-analytics.readonly`. A sign-in that grants any other scope is
+  revoked and refused, and a token that later carries one is refused. creatorlens has no way to upload, edit, delete,
+  comment or change your channel.
 - **A closed route table:** every request is checked against a list of method, host, path and caller before it is
   sent. Only Google's API and sign-in hosts are listed (not even `www.googleapis.com`). Redirects are refused, except a
   report download redirected to another download route; your token never goes to another host.
 - **The few state-changing calls are yours alone:** creating and deleting Reporting jobs and revoking a token live in
-  a module the MCP server never imports, and each runs only from your own terminal with a typed confirmation. The server
-  also sets a one-way read-only latch.
+  a module the MCP server never imports, so no tool can reach them, and the server also sets a one-way read-only latch.
+  On the command line they need a terminal, a typed confirmation and a shell no AI assistant started (see "Settings
+  for the folder where you use it" for what that does and does not stop).
 - **Everything stays local:** a SQLite store and a raw archive per channel in `~/Library/Application Support/creatorlens/`
   (folders 0700, files 0600), the tokens in the macOS Keychain. No telemetry, no network service.
 - **Strangers' text is data:** text other people write (search terms, referrer pages and, from v2, comments) is cleaned
@@ -42,9 +44,9 @@ LLC.
 - **SQL in a sandbox:** `sql_query` runs one read-only statement in a separate process with an empty environment,
   `limits` that stop `ATTACH` and `VACUUM INTO`, a deny-by-default authorizer, and a kill after 5 seconds.
 - **The policy clocks:** revoking through creatorlens deletes everything in the same run; a sign-in that can no longer be
-  refreshed is announced in every answer and purged 28 days after the last good refresh; your videos' metadata is
-  deleted if not refreshed for 30 days; other channels' data (v2) never lives longer than 30 days. See
-  [docs/policy.md](docs/policy.md).
+  refreshed is announced in every answer and purged 28 days after the last good refresh; your videos' metadata (every
+  field but the ids) is deleted if not refreshed for 30 days; other channels' data (v2) never lives longer than 30
+  days. The clocks run even when a scheduled sync stops for unaccepted terms. See [docs/policy.md](docs/policy.md).
 
 What the Keychain does not do, and what to do if a token leaks: [SECURITY.md](SECURITY.md).
 
@@ -84,33 +86,52 @@ node "$APP" sync --profile en --full
 node "$APP" schedule install --profile en   # daily at 07:30, and at login
 node "$APP" doctor --json                   # green when everything is in place
 node "$APP" mcp-config                      # prints the next line with your paths
-cd ~/YouTube-analysis && claude mcp add --scope local creatorlens -- <node> "$APP" serve
+cd ~/channel-analysis && claude mcp add --scope local creatorlens -- <node> "$APP" serve
 ```
 
 Secrets go only into your own terminal: never paste a token, the client JSON or an API key into a chat.
 
 ### Settings for the folder where you use it
 
-`--scope local` registers the server only in the folder where you run the command. In that folder's
-`.claude/settings.json`, keep the token and the state-changing commands out of the assistant's reach
-(`creatorlens mcp-config` prints this block with your paths):
+`--scope local` registers the server only in the folder where you run the command. The MCP server itself cannot sign
+in, create or delete Reporting jobs, revoke, or read the token. What can is a shell: anything running as you can read
+the Keychain item and the data folder (SECURITY.md), and a shell can open a pseudo-terminal (`script`, `expect`) and
+type a confirmation. So in that folder:
+
+1. **Keep the assistant's shell on "ask"** (no blanket `Bash` allow, no auto-approve mode), and its web fetches and
+   other servers' write tools too, above all while it reads text strangers wrote. This is the wall.
+2. **Add the deny rules** to that folder's `.claude/settings.json` (`creatorlens mcp-config` prints this block with your
+   paths). They catch a direct attempt; a Bash rule matches the command as written, so a wrapped one (`sh -c`,
+   `script`, a variable) passes. They are a net, not a wall.
 
 ```json
 {
   "permissions": {
     "deny": [
-      "Bash(security find-generic-password*)",
-      "Bash(security dump-keychain*)",
-      "Bash(*cli.js auth*)", "Bash(*cli.js setup*)", "Bash(*cli.js revoke*)", "Bash(*cli.js purge*)",
-      "Bash(*cli.js reporting*)", "Bash(*cli.js schedule*)", "Bash(*cli.js install*)", "Bash(*cli.js transcripts*)",
+      "Bash(*security find-generic-password*)",
+      "Bash(*security dump-keychain*)",
+      "Bash(*cli.js* auth*)", "Bash(*creatorlens auth*)",
+      "Bash(*cli.js* setup*)", "Bash(*creatorlens setup*)",
+      "Bash(*cli.js* revoke*)", "Bash(*creatorlens revoke*)",
+      "Bash(*cli.js* purge*)", "Bash(*creatorlens purge*)",
+      "Bash(*cli.js* reporting*)", "Bash(*creatorlens reporting*)",
+      "Bash(*cli.js* schedule*)", "Bash(*creatorlens schedule*)",
+      "Bash(*cli.js* install*)", "Bash(*creatorlens install*)",
+      "Bash(*cli.js* transcripts*)", "Bash(*creatorlens transcripts*)",
       "Read(~/Library/Application Support/creatorlens/**)"
-    ]
+    ],
+    "allow": ["Bash(<node> '<the pinned cli.js>' status --json)"]
   },
   "sandbox": { "filesystem": { "denyRead": ["~/Library/Application Support/creatorlens"] } }
 }
 ```
 
-While an assistant reads strangers' text, keep its shell, web fetches and other servers' write tools on "ask".
+3. **The command line refuses a shell an assistant started.** The state-changing commands need a terminal, a typed
+   confirmation, and no `CLAUDE_CODE_CHILD_SESSION` in the environment (Claude Code sets it in every command its tools
+   run, from version 2.1.172). That stops an accidental or injected run, not a shell that hides on purpose.
+
+If you turn on Claude Code's sandbox, its `denyRead` also stops the allowed `status --json` command, which reads the
+data folder; the MCP `status` tool gives the same answer.
 
 ## Commands
 
@@ -132,7 +153,9 @@ While an assistant reads strangers' text, keep its shell, web fetches and other 
 | `mcp-config` | prints the `claude mcp add --scope local` line and the folder settings |
 | `serve` | the MCP server over stdio (your MCP client runs it) |
 
-State-changing commands need a terminal and a typed confirmation, so an assistant's shell cannot run them.
+State-changing commands (`setup`, `auth`, `reporting enable|disable`, `schedule install|remove`, `purge`, `revoke`,
+`install`, `transcripts add|remove`) need a terminal, a typed confirmation and a shell no AI assistant started: a speed
+bump against an assistant's shell, not a wall (see "Settings for the folder where you use it").
 
 ## MCP tools (v0)
 

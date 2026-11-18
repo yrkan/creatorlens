@@ -23,7 +23,7 @@ import { acquireLock } from '../util/lock.ts';
 import { ensureDir, fileExists, isInside, removeTree } from '../util/fsx.ts';
 import { escapeForTerminal } from '../util/text.ts';
 import { CLIENT_ACCOUNT, type StoreKind } from '../secrets.ts';
-import { docPath } from '../docs.ts';
+import { docPath, readDoc } from '../docs.ts';
 import { APP_VERSION, OAUTH_APP_NAME, SCOPES, TERMS_VERSION } from '../version.ts';
 import { PURGED_TABLES } from '../store/schema.ts';
 
@@ -81,7 +81,7 @@ function findClientJson(ctx: Ctx): string | undefined {
 }
 
 export async function cmdSetup(ctx: Ctx, f: AdminFlags): Promise<number> {
-  requireTty(ctx.prompt, 'setup');
+  requireTty(ctx.prompt, 'setup', ctx.env);
   requireMac(ctx, f);
   const cfg = loadConfig(ctx.paths, ctx.platform);
   const kind = (f['token-store'] ?? cfg.tokenStore) as StoreKind;
@@ -94,6 +94,8 @@ export async function cmdSetup(ctx: Ctx, f: AdminFlags): Promise<number> {
   ctx.out(`  - Google Privacy Policy: https://policies.google.com/privacy`);
   ctx.out(`  - creatorlens terms: ${docPath('terms.md')}`);
   ctx.out(`  - creatorlens privacy policy: ${docPath('privacy.md')}`);
+  // The two documents themselves, in full, before the acceptance is asked (Developer Policies III.A).
+  for (const doc of ['terms.md', 'privacy.md'] as const) ctx.out(`\n${escapeForTerminal(readDoc(doc), true)}`);
   ctx.out('In short: creatorlens reads your channel with two read-only scopes and keeps the data on this computer. What a tool returns goes to your AI client and its model provider. You can revoke access at https://security.google.com/settings/security/permissions at any time.');
   const accepted = await confirmTyped(ctx.prompt, `Terms version ${TERMS_VERSION}.`, 'I accept');
   if (!accepted) {
@@ -138,7 +140,7 @@ async function revokeQuietly(ctx: Ctx, token: string | undefined): Promise<void>
 }
 
 export async function cmdAuth(ctx: Ctx, f: AdminFlags): Promise<number> {
-  requireTty(ctx.prompt, 'auth');
+  requireTty(ctx.prompt, 'auth', ctx.env);
   requireMac(ctx, f);
   const name = needProfile(f);
   const cfg = loadConfig(ctx.paths, ctx.platform);
@@ -221,7 +223,8 @@ export async function cmdAuth(ctx: Ctx, f: AdminFlags): Promise<number> {
         )
         .run(ch.id, ch.title, ch.handle, ch.country, ch.publishedAt, ch.uploadsPlaylistId, now.toISOString());
       recordRefreshOk(s);
-      logEvent(s.db, now, 'auth_ok', `bound ${ch.id}`);
+      // No id in an event's detail: events hold no data (store/schema.ts), and a full purge empties them.
+      logEvent(s.db, now, 'auth_ok', bound ? 'signed in again' : 'bound');
       s.db.exec('COMMIT');
     } catch (e) {
       s.db.exec('ROLLBACK');
@@ -250,7 +253,7 @@ export async function cmdReporting(ctx: Ctx, f: AdminFlags, sub: string | undefi
   const name = needProfile(f);
   requireTerms(loadConfig(ctx.paths, ctx.platform));
   if (sub !== 'enable' && sub !== 'disable' && sub !== 'status') throw new Error('Use: reporting enable|disable|status --profile <name>');
-  if (sub !== 'status') requireTty(ctx.prompt, `reporting ${sub}`);
+  if (sub !== 'status') requireTty(ctx.prompt, `reporting ${sub}`, ctx.env);
   const s = openProfile(ctx, name);
   const lock = sub === 'status' ? undefined : acquireLock(s.pp.lock, `reporting ${sub}`, () => ctx.clock.now());
   try {
@@ -336,7 +339,7 @@ export async function cmdReporting(ctx: Ctx, f: AdminFlags, sub: string | undefi
 // ---------------------------------------------------------------- revoke
 
 export async function cmdRevoke(ctx: Ctx, f: AdminFlags): Promise<number> {
-  requireTty(ctx.prompt, 'revoke');
+  requireTty(ctx.prompt, 'revoke', ctx.env);
   const name = needProfile(f);
   const s = openProfile(ctx, name);
   const lock = acquireLock(s.pp.lock, 'revoke', () => ctx.clock.now());
@@ -392,7 +395,7 @@ function stamp(d: Date): string {
 }
 
 export async function cmdPurge(ctx: Ctx, f: AdminFlags): Promise<number> {
-  requireTty(ctx.prompt, 'purge');
+  requireTty(ctx.prompt, 'purge', ctx.env);
   if (f.public) {
     if (!(await confirmTyped(ctx.prompt, 'Delete public.db (other channels\' data) now?', 'purge public'))) return 1;
     for (const p of [ctx.paths.publicDb, `${ctx.paths.publicDb}-wal`, `${ctx.paths.publicDb}-shm`]) fs.rmSync(p, { force: true });
@@ -448,7 +451,7 @@ export async function cmdSchedule(ctx: Ctx, f: AdminFlags, sub: string | undefin
     return st.installed && st.problems.length === 0 ? 0 : 1;
   }
   if (sub !== 'install' && sub !== 'remove') throw new Error('Use: schedule install|remove|status --profile <name>');
-  requireTty(ctx.prompt, `schedule ${sub}`);
+  requireTty(ctx.prompt, `schedule ${sub}`, ctx.env);
   if (sub === 'remove') {
     if (!(await confirmTyped(ctx.prompt, `Remove the daily sync of profile "${name}"?`, `schedule ${name}`))) return 1;
     ctx.out((await scheduleRemove(ctx, name)) ? 'Removed.' : 'No schedule was installed.');
@@ -468,7 +471,7 @@ export async function cmdSchedule(ctx: Ctx, f: AdminFlags, sub: string | undefin
 // ---------------------------------------------------------------- install
 
 export async function cmdInstall(ctx: Ctx, f: AdminFlags): Promise<number> {
-  requireTty(ctx.prompt, 'install');
+  requireTty(ctx.prompt, 'install', ctx.env);
   if (!(await confirmTyped(ctx.prompt, `Install creatorlens ${APP_VERSION} as a pinned copy in ${ctx.paths.appDir}?`, `install ${APP_VERSION}`))) return 1;
   const r = await installPinned(ctx, { force: Boolean(f.force), runTests: !f['skip-tests'] });
   ctx.out(`Installed ${r.target} (${r.files} files; runtime packages: ${r.packages.join(', ')}).`);
@@ -486,7 +489,7 @@ export async function cmdTranscripts(ctx: Ctx, f: AdminFlags, sub: string | unde
     return 0;
   }
   if (sub !== 'add' && sub !== 'remove') throw new Error('Use: transcripts add|remove <folder> | transcripts list');
-  requireTty(ctx.prompt, `transcripts ${sub}`);
+  requireTty(ctx.prompt, `transcripts ${sub}`, ctx.env);
   if (!dir) throw new Error('Name the folder, for example ~/.claude/projects/-Users-you-YouTube-analysis');
   const abs = validateTranscriptDir(dir, ctx.homedir);
   if (sub === 'add') {

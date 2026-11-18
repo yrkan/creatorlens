@@ -14,7 +14,7 @@ import { tailLog } from '../util/log.ts';
 import { escapeForTerminal } from '../util/text.ts';
 import { isPinned } from '../schedule.ts';
 import { latestPinned } from '../install.ts';
-import { loadConfig, requireTerms } from '../config.ts';
+import { loadConfig, termsAccepted, TermsNotAccepted } from '../config.ts';
 
 export interface Flags {
   profile?: string;
@@ -34,15 +34,17 @@ function profilesFor(ctx: Ctx, f: Flags): string[] {
 }
 
 export async function cmdSync(ctx: Ctx, f: Flags): Promise<number> {
-  requireTerms(loadConfig(ctx.paths, ctx.platform));
+  // Terms not accepted (an upgrade changed them) stop the downloads, never the policy clocks: each profile's run still
+  // confirms or purges as the 30-day rules require, and records the refusal (src/sync.ts, SyncOptions.termsAccepted).
+  const accepted = termsAccepted(loadConfig(ctx.paths, ctx.platform));
   const trigger = (f.trigger ?? 'manual') as Trigger;
   if (!['manual', 'schedule', 'serve'].includes(trigger)) throw new Error('--trigger is manual, schedule or serve.');
-  let code = 0;
+  let code = accepted ? 0 : 1;
   const results = [];
   for (const name of profilesFor(ctx, f)) {
     const s = openProfile(ctx, name);
     try {
-      const r = await runSync(ctx, s, { full: Boolean(f.full), trigger });
+      const r = await runSync(ctx, s, { full: Boolean(f.full), trigger, termsAccepted: accepted });
       results.push(r);
       if (!r.ok) code = 1;
       if (!f.json) {
@@ -57,6 +59,7 @@ export async function cmdSync(ctx: Ctx, f: Flags): Promise<number> {
     }
   }
   if (f.json) ctx.out(JSON.stringify(results, null, 2));
+  if (!accepted) ctx.err(new TermsNotAccepted().message);
   return code;
 }
 
@@ -121,8 +124,32 @@ export async function cmdSql(ctx: Ctx, f: Flags, positionals: string[]): Promise
   return 0;
 }
 
-function shellQuote(s: string): string {
+export function shellQuote(s: string): string {
   return /^[A-Za-z0-9_./:@-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** The commands that change state (they need a terminal, a typed confirmation and a shell no assistant started). */
+export const STATE_CHANGING_COMMANDS = ['auth', 'setup', 'revoke', 'purge', 'reporting', 'schedule', 'install', 'transcripts'] as const;
+
+/**
+ * The analysis folder's settings: deny rules for the Keychain read, the state-changing commands and the data folder,
+ * and one allow rule for `status --json`. A Bash rule matches the command as the assistant writes it ("*" is any
+ * text), so each rule also covers a quoted path ("…/cli.js" reporting) and /usr/bin/security; a wrapped command
+ * (sh -c, script, a variable) still passes. They are a net under the real wall: the assistant's shell on "ask".
+ */
+export function folderSettings(dataRoot: string, node: string, entry: string): Record<string, unknown> {
+  return {
+    permissions: {
+      deny: [
+        'Bash(*security find-generic-password*)',
+        'Bash(*security dump-keychain*)',
+        ...STATE_CHANGING_COMMANDS.flatMap((c) => [`Bash(*cli.js* ${c}*)`, `Bash(*creatorlens ${c}*)`]),
+        `Read(${dataRoot}/**)`,
+      ],
+      allow: [`Bash(${shellQuote(node)} ${shellQuote(entry)} status --json)`],
+    },
+    sandbox: { filesystem: { denyRead: [dataRoot] } },
+  };
 }
 
 export async function cmdMcpConfig(ctx: Ctx): Promise<number> {
@@ -132,28 +159,14 @@ export async function cmdMcpConfig(ctx: Ctx): Promise<number> {
     return 1;
   }
   const node = ctx.execPath;
-  ctx.out('Run this inside ~/YouTube-analysis (local scope: the server exists only in that folder):\n');
+  ctx.out('Run this inside the folder where you analyse your channels (local scope: the server exists only in that folder):\n');
   ctx.out(`  claude mcp add --scope local creatorlens -- ${shellQuote(node)} ${shellQuote(entry)} serve\n`);
   ctx.out('Claude Desktop (claude_desktop_config.json), if you use it:\n');
   ctx.out(JSON.stringify({ mcpServers: { creatorlens: { command: node, args: [entry, 'serve'] } } }, null, 2));
-  ctx.out('\nSettings for that folder (.claude/settings.json), so no session can read the token or run the state-changing commands:\n');
   ctx.out(
-    JSON.stringify(
-      {
-        permissions: {
-          deny: [
-            'Bash(security find-generic-password*)',
-            'Bash(security dump-keychain*)',
-            ...['auth', 'setup', 'revoke', 'purge', 'reporting', 'schedule', 'install', 'transcripts'].map((c) => `Bash(*cli.js ${c}*)`),
-            `Read(${ctx.paths.root}/**)`,
-          ],
-          allow: [`Bash(${shellQuote(node)} ${shellQuote(entry)} status --json)`],
-        },
-        sandbox: { filesystem: { denyRead: [ctx.paths.root] } },
-      },
-      null,
-      2,
-    ),
+    '\nSettings for that folder (.claude/settings.json). The deny rules catch a direct attempt to read the token or run a state-changing command; ' +
+      'they match the command as written, so a wrapped one passes: keep the assistant\'s shell on "ask" there (no blanket Bash allow, no auto-approve mode).\n',
   );
+  ctx.out(JSON.stringify(folderSettings(ctx.paths.root, node, entry), null, 2));
   return 0;
 }

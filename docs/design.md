@@ -259,22 +259,25 @@ removed; comments cut at 500 characters, descriptions at 1,000, the cut marked) 
 every tool, `sql_query` included (the child reports reads of `untrusted_*` columns, through views and expressions);
 strangers' free text never in the same answer as Authorized Data; comments only in v2, on an explicit call; install
 with `--scope local` in an analysis folder whose settings deny the Keychain read, the state-changing commands and the
-data folder, and keep the shell, web fetches and other servers' write tools on "ask"; the state-changing commands need
-a TTY and a typed confirmation (a speed bump the model's shell cannot pass); a stdio injection fixture and a "no
-credential in any output" test.
+data folder (a net: a Bash rule matches the command as written, so a wrapped command passes), and keep the shell, web
+fetches and other servers' write tools on "ask" (the wall); the state-changing commands need a TTY, a typed
+confirmation and a shell without `CLAUDE_CODE_CHILD_SESSION` (a speed bump: a shell can open a pseudo-terminal with
+`script` and type the phrase, which the pre-publication review demonstrated, and can drop the variable on purpose); a
+stdio injection fixture and a "no credential in any output" test.
 
 ### 6.2 The clocks (`src/policy.ts`)
 
 | Clock | Rule |
 |---|---|
-| revocation | `revoke` offers to delete the jobs (it needs the token), POSTs `/revoke`, then deletes every table, the archive, the backups, the logs, the configured transcripts and the token, in the same run, and prints that nothing was deleted on YouTube |
+| revocation | `revoke` offers to delete the jobs (it needs the token), POSTs `/revoke`, then deletes every table (the event log included), the archive, the backups, the logs, the configured transcripts and the token, in the same run, and prints that nothing was deleted on YouTube |
 | lost sign-in | a definitive refresh failure (`invalid_grant` with its `error_subtype`, `invalid_client`, `deleted_client`, …) sets `auth_lost_at`; sync stops; every answer and command carries a banner; a notification once a day; at `last_refresh_ok_at` + 28 days everything is purged unless the same channel signed in again |
-| unconfirmed sign-in | no successful refresh for 30 days for any reason: the next networked check tries once, and purges on failure; the server blocks own-data answers and starts a catch-up sync |
-| own metadata | titles, descriptions, tags and the channel row cleared when not refreshed for 30 days; a deleted video's at once |
+| unconfirmed sign-in | no successful refresh for 30 days for any reason: the next networked check tries once, and purges on failure; the server blocks own-data answers and starts a catch-up sync; a sync stopped by terms not accepted still runs this check |
+| own metadata | every non-statistical field of the videos and the channel row (`METADATA_COLUMNS`: titles, descriptions, tags, languages, category, publish time, duration, privacy, made for kids, live status; the channel's title, handle, country and creation time) cleared when not refreshed for 30 days, the ids kept; a deleted video's at once |
 | other channels' data | `public.db` rows older than 30 days deleted (and any table that cannot be aged) |
 | creatorlens's copies | backups (pre-migration, `purge --all`) deleted after 7 days |
 
-Checked at `serve` start, on every tool call, on every command and in every sync. Deletion runs with `secure_delete`,
+Checked at `serve` start, on every tool call, by the commands that read the store (`status`, `sql`, `doctor`) and in
+every sync, the scheduled one included whatever the terms' state. Deletion runs with `secure_delete`,
 then `wal_checkpoint(TRUNCATE)` and `VACUUM`. The Testing-mode warning runs from consent day 5 until a refresh after
 day 8 proves the app is In production (or always, when the operator said Testing).
 
@@ -333,7 +336,8 @@ Gaming since 2025-07-21), Analytics groups through the API, any model-triggered 
 
 `setup`, `auth`, `reporting enable|disable|status`, `sync [--full] [--all]`, `schedule install|remove|status`,
 `status [--json]`, `doctor [--json] [--offline]`, `sql`, `logs`, `purge --all|--backups|--public`, `revoke`, `install`,
-`transcripts add|remove|list`, `mcp-config`, `serve`. State-changing commands need a TTY and a typed confirmation.
+`transcripts add|remove|list`, `mcp-config`, `serve`. State-changing commands need a TTY, a typed confirmation and a
+shell no AI assistant started.
 `status --json` is the skills' read (an allow rule for exactly that command). v1 adds `reimport`, `labels import`,
 `import site`, `note add`, `series set`, `backup`, `restore`, `export`, `uninstall`, `card --json`, `review --json`,
 `doctor --deep`.
@@ -362,7 +366,12 @@ clocks on a fake clock (revoke, lost sign-in at 28 days, unconfirmed at 30, meta
 comment, two statements, `load_extension`, `randomblob(1e9)`, a recursive CTE and a cross join answered within 6 s,
 caps, wrapping through views and expressions); the stdio contract against the built server (tools, annotations, strict
 inputs, an injection fixture, JSON-RPC only on stdout, no credential in any output); the schedule; doctor green and red;
-the pinned copy serving on its own.
+the pinned copy serving on its own. Added by the pre-publication review: every state-changing command refused in an
+assistant's shell, the built CLI through `script(1)` included; the folder's deny rules against quoted and wrapped
+forms, and the README's block equal to `mcp-config`'s; no trace of the channel in any table after a purge (revoke and
+the 28-day clock); every non-statistical column cleared at 30 days and on a removal, and `METADATA_COLUMNS` complete
+against the column map; the clocks run while the terms wait for acceptance; the metadata refresh survives a failing
+Reporting step; `setup` shows both documents before asking.
 
 ## 11. The owner's setup
 
@@ -397,7 +406,7 @@ schedules, doctor, `claude mcp add --scope local` in `~/YouTube-analysis`). Back
 | SEC-3 | SQL escapes a read-only connection (VACUUM INTO, ATTACH, two statements) | Node ≥ 24.15; `readOnly`, `allowExtension: false`, `limits` (attach 0…); defensive; deny-by-default authorizer; one-statement gate; tests | v0 (ahead of plan) · `sql/runner.ts`, `test/sql.test.ts` |
 | SEC-4 | a query can freeze the server | a forked child per query, `iterate()`, row and byte caps, SIGKILL at 5 s, one at a time, `temp_store=MEMORY`; runaway tests answered within 6 s | v0 (ahead of plan) · `sql/sandbox.ts` |
 | SEC-5 | revoke and `jobs.delete` break the method rule; "CLI path only" is no mechanism | the route table of § 4.2; admin routes in `src/admin/`, never imported by `serve` (graph test); a read-only latch; no `www.googleapis.com`; `redirect: 'error'` except downloads; no retry of the code exchange or `jobs.create` | v0 · `google/`, `admin/`, `test/importGraph.test.ts`, `test/http.test.ts` |
-| SEC-6 | the token sits beside the model's shell | SECURITY.md says what the Keychain does not do; TTY and typed confirmation for purge, revoke, reporting, schedule, auth, setup, install, transcripts; `purge --all` keeps a dated copy 7 days; deny rules and `denyRead` in the README; the runbook | v0 · `util/tty.ts`, `test/tty.test.ts`, SECURITY.md |
+| SEC-6 | the token sits beside the model's shell | SECURITY.md says what the Keychain does not do; TTY, typed confirmation and no assistant-shell marker (`CLAUDE_CODE_CHILD_SESSION`) for purge, revoke, reporting, schedule, auth, setup, install, transcripts, called a speed bump, never a wall; `purge --all` keeps a dated copy 7 days; deny rules that survive a quoted path, and `denyRead`, in the README, called a net; the shell on "ask" as the wall; the runbook | v0 · `util/tty.ts`, `test/tty.test.ts`, `commands/ops.ts` `folderSettings`, SECURITY.md |
 | SEC-7 | Keychain mechanics and a silent file fallback | `security -i`, base64, read-back, the 4,095-byte limit; a file store only with `--token-store file` (`wx` 0600 in 0700, fsync, rename, `lstat`) | v0 · `secrets.ts`, `test/secrets.test.ts` |
 | SEC-8 | Windows | unsupported in v1; `doctor` says so; no Windows runner | v0 decision |
 | SEC-9 | what counts as a revocation | the state machine of § 6.2; each profile bound to its first channel id; `secure_delete`, `wal_checkpoint(TRUNCATE)`, `VACUUM` | v0 · `policy.ts` |

@@ -13,7 +13,7 @@ How to use it:
 3. Every tool takes "profile". A call reads one channel only; never combine profiles in one answer. Compare languages only by quoting two separate answers.
 
 Rules:
-- Nothing here can change the channel, the Google account or anything outside the local store. Sign-in, Reporting jobs, sync, purge and revoke are the owner's commands in his own Terminal; you cannot run them, and you should not ask the owner to paste secrets into the chat.
+- No tool here can change the channel, the Google account or anything outside the local store. Sign-in, Reporting jobs, schedules, purge and revoke are the owner's own commands, typed in the owner's own Terminal: never run them yourself, through a shell, a pseudo-terminal or a script, never read the creatorlens Keychain item or data folder, and never ask the owner to paste a secret into the chat.
 - ${UNTRUSTED_NOTE}
 - Report Google's figures as given (in v1). Do not compute scores, rankings between channels, outlier ratios or sentiment from them (YouTube API Services Developer Policies III.E.4.h).
 - YouTube's days are Pacific-time days.

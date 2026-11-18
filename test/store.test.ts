@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore, setMeta, NewerSchema } from '../src/store/db.ts';
-import { REGISTRY, MIGRATIONS } from '../src/store/schema.ts';
+import { REGISTRY, MIGRATIONS, METADATA_COLUMNS, METADATA_KEEP, PURGED_TABLES } from '../src/store/schema.ts';
 import { SCHEMA_VERSION } from '../src/version.ts';
 import { acquireLock, LockBusy } from '../src/util/lock.ts';
 import { openDatabase } from '../src/store/sqlite.ts';
@@ -58,6 +58,21 @@ test('every table and column of the schema is in the column map, and no third-pa
     }
   }
   db.close();
+});
+
+test('the 30-day metadata clock covers every API field of videos and channel but the ids, and a full purge every table but meta', () => {
+  // A column added later from the Data API cannot escape the clock: it must be listed in METADATA_COLUMNS or be an id.
+  for (const table of ['videos', 'channel'] as const) {
+    const listed = new Set<string>(METADATA_COLUMNS[table]);
+    const keep = new Set<string>(METADATA_KEEP[table]);
+    for (const [c, info] of Object.entries(REGISTRY[table]!.columns)) {
+      if (info.origin === 'owner' || info.origin === 'google') {
+        assert.ok(listed.has(c) || keep.has(c), `${table}.${c} comes from the API: add it to METADATA_COLUMNS (or METADATA_KEEP if it is an id)`);
+      }
+    }
+    for (const c of listed) assert.ok(REGISTRY[table]!.columns[c], `${table}.${c} is in the schema`);
+  }
+  assert.deepEqual([...PURGED_TABLES].sort(), Object.keys(REGISTRY).filter((t) => t !== 'meta').sort(), 'a full purge empties every table but meta');
 });
 
 test('one writer at a time; a stale lock (dead process) is replaced', () => {

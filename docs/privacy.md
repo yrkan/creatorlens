@@ -1,6 +1,6 @@
 # creatorlens privacy policy
 
-Version 2026-11-18. `creatorlens setup` shows this policy and asks you to accept it before anything is stored, and asks again whenever this version changes.
+Version 2026-11-18.2. `creatorlens setup` shows this policy and asks you to accept it before anything is stored, and asks again whenever this version changes.
 
 creatorlens is software you run on your own computer, with your own Google Cloud project. You are the operator of that API client, so this policy describes what the software does with the data of the channels you sign in. creatorlens is not affiliated with or endorsed by YouTube or Google.
 
@@ -35,12 +35,13 @@ creatorlens sends no telemetry, opens no network service, and contacts no host o
 ## How long data is kept
 
 - Your channel's analytics and Reporting files: as long as your authorization holds. creatorlens re-confirms the authorization every day it syncs, and at least every 30 days.
-- Your videos' metadata (titles, descriptions, tags): refreshed at every sync, and deleted if it has not been refreshed for 30 days. A deleted video's metadata is cleared when the sync sees it gone.
+- Your videos' and your channel's metadata (titles, descriptions, tags, languages, publish times, durations, privacy settings and the rest; only the ids are kept): refreshed at every sync, and deleted if it has not been refreshed for 30 days. A deleted video's metadata is cleared when the sync sees it gone.
 - Other channels' data (version 2): at most 30 days.
 - creatorlens's own backups: 7 days.
 - When you revoke through creatorlens (`creatorlens revoke`): access is revoked at Google and all data of that channel is deleted in the same run.
 - When the sign-in can no longer be refreshed (you removed access on Google's page, the app's tokens expired, the client was deleted): every answer says so, a daily notification reminds you, and all data of that channel is deleted 28 days after the last successful refresh unless the same channel signs in again.
-- When the sign-in has not been confirmed for 30 days for any other reason: the next check that can reach Google confirms it or deletes the data.
+- When the sign-in has not been confirmed for 30 days for any other reason: the next check that can reach Google confirms it or deletes the data. This check runs even while a newer version of these terms waits for your acceptance.
+- creatorlens's deletions reach its data folder, its Keychain items and the transcript folders you named. Copies elsewhere stay until you delete them yourself: backups of your computer (Time Machine includes the data folder unless you exclude it), files you exported, and the AI client's other transcripts.
 
 ## Your choices
 

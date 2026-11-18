@@ -1,7 +1,9 @@
 // The policy clocks (design v2 § 6; YouTube API Services Developer Policies III.D.2.c, III.E.4.b–d; API-1, CMP-2,
-// SEC-9, API-11). They run at the start of `serve`, on every tool call, on every CLI command and in every sync:
+// SEC-9, API-11). They run at the start of `serve`, on every tool call, in the commands that read the store (status,
+// sql, doctor) and in every sync, including a scheduled sync that stops because the current terms are not accepted:
 //
-// 1. Revocation: `creatorlens revoke` revokes at Google and purges everything in the same run (src/commands/revoke.ts).
+// 1. Revocation: `creatorlens revoke` revokes at Google and purges everything in the same run (src/commands/admin.ts
+//    cmdRevoke): every table of the channel's data and its bookkeeping, events included (PURGED_TABLES).
 // 2. Lost sign-in: a definitive refresh failure (invalid_grant, deleted or invalid client) sets auth_lost_at; every
 //    answer carries a banner, a notification comes once a day, and all Authorized Data is purged automatically at
 //    last_refresh_ok_at + 28 days unless the same channel signs in again. (28, not 30: the revocation may be older than
@@ -9,7 +11,9 @@
 // 3. Unconfirmed sign-in: if no refresh has succeeded for 30 days for any reason (the Mac was off, the network was down),
 //    the next check that can reach Google tries once; if that fails, everything is purged. A check that cannot reach
 //    Google (the server) blocks the data and asks for a sync.
-// 4. Own metadata (titles, descriptions, tags, the channel row) is cleared when it has not been refreshed for 30 days.
+// 4. Own metadata is cleared when it has not been refreshed for 30 days: every non-statistical field of the videos and
+//    the channel row (titles, descriptions, tags, publish times, durations, privacy and the rest; METADATA_COLUMNS),
+//    only the ids stay.
 // 5. Other channels' data (public.db, from v2) is deleted 30 days after it was fetched.
 // 6. creatorlens's own copies (backups) are deleted after 7 days.
 // Deletion uses secure_delete, then wal_checkpoint(TRUNCATE) and VACUUM. Nothing is ever deleted on YouTube.
@@ -19,7 +23,7 @@ import path from 'node:path';
 import type { Ctx } from './context.ts';
 import type { ProfileSession } from './profile.ts';
 import { getMeta, setMeta, delMeta, logEvent } from './store/db.ts';
-import { PURGED_TABLES } from './store/schema.ts';
+import { PURGED_TABLES, clearMetadataSql } from './store/schema.ts';
 import type { Db } from './store/sqlite.ts';
 import { addDays, parseIso, DAY_MS } from './util/clock.ts';
 import { fileExists, isInside, removeTree } from './util/fsx.ts';
@@ -222,21 +226,23 @@ export async function fullPurge(
   };
 }
 
-/** Clears own metadata not refreshed for 30 days (III.E.4.c). Returns the number of rows cleared. */
+/**
+ * Clears own metadata not refreshed for 30 days (III.E.4.c): every non-statistical field of the videos and the channel
+ * row (METADATA_COLUMNS), so only the ids stay. Returns the number of rows cleared.
+ */
 export function expireMetadata(db: Db, now: Date): number {
   const cutoff = addDays(now, -POLICY.METADATA_DAYS).toISOString();
   const stamp = now.toISOString();
   const v = db
     .prepare(
-      `UPDATE videos SET title = NULL, description = NULL, tags_json = NULL, default_language = NULL,
-         default_audio_language = NULL, category_id = NULL, metadata_expired_at = ?
+      `UPDATE videos SET ${clearMetadataSql('videos')}, metadata_expired_at = ?
        WHERE metadata_expired_at IS NULL AND (refreshed_at IS NULL OR refreshed_at < ?)`,
     )
     .run(stamp, cutoff).changes;
   const c = db
     .prepare(
-      `UPDATE channel SET title = NULL, handle = NULL, country = NULL, metadata_expired_at = ?
-       WHERE metadata_expired_at IS NULL AND refreshed_at < ?`,
+      `UPDATE channel SET ${clearMetadataSql('channel')}, metadata_expired_at = ?
+       WHERE metadata_expired_at IS NULL AND (refreshed_at IS NULL OR refreshed_at < ?)`,
     )
     .run(stamp, cutoff).changes;
   const n = Number(v) + Number(c);
@@ -245,7 +251,11 @@ export function expireMetadata(db: Db, now: Date): number {
     delMeta(db, 'channel_title');
     delMeta(db, 'channel_handle');
   }
-  if (n > 0) logEvent(db, now, 'metadata_expired', `${n} rows`);
+  if (n > 0) {
+    logEvent(db, now, 'metadata_expired', `${n} rows`);
+    // secure_delete has zeroed the old values in the pages; truncating the WAL drops its copies of them too.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  }
   return n;
 }
 

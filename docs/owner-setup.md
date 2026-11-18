@@ -1,8 +1,9 @@
 # Setting up creatorlens: the owner's checklist
 
 Two parts: **Google Cloud** (about 40 minutes, once; only you can do it, in your own browser, signed in to your own
-account) and **the Mac** (about 35 minutes for six channels). Every step that changes something asks you to type a
-confirmation, so no assistant can run it for you. Never paste a token, the client JSON or a key into a chat.
+account) and **the Mac** (about 35 minutes for six channels). Every step that changes something is yours, typed in
+your own Terminal: it asks you to type a confirmation and refuses a shell an assistant started. Never paste a token,
+the client JSON or a key into a chat.
 
 What the screens look like and what each error means: [google-cloud.md](google-cloud.md).
 
@@ -31,7 +32,7 @@ What the screens look like and what each error means: [google-cloud.md](google-c
    https://www.googleapis.com/auth/yt-analytics.readonly
    ```
    Add nothing else. creatorlens refuses a sign-in that carries any other scope.
-6. **Publish the app: "In production"** (the advice of decision ★9; the choice is yours). Google Auth Platform →
+6. **Publish the app: "In production"** (our advice; the choice is yours). Google Auth Platform →
    **Audience** → Publishing status *Testing* → **Publish app** → **Confirm**. The status reads *In production*.
    - Why: while an app is in Testing, every sign-in dies after 7 days; a dead sign-in starts the 28-day deletion clock
      and would need six new sign-ins every week.
@@ -97,8 +98,9 @@ Run these in your own Terminal (not inside an assistant). Node must be v26.7.0: 
     ```
     Run the `claude mcp add --scope local creatorlens -- …` line it prints, inside `~/YouTube-analysis`, and merge the
     settings block it prints into `~/YouTube-analysis/.claude/settings.json` (deny rules for the Keychain read, the
-    state-changing commands and the data folder).
-18. **Optional, recommended (Q25):** let every full purge also delete that folder's assistant transcripts:
+    state-changing commands and the data folder). Keep the assistant's shell on "ask" in that folder: the deny rules
+    are a net, the "ask" prompt is the wall (README, "Settings for the folder where you use it").
+18. **Optional, recommended:** let every full purge also delete that folder's assistant transcripts:
     ```sh
     node "$APP" transcripts add ~/.claude/projects/-Users-<you>-YouTube-analysis     # type: yes
     ```
@@ -107,6 +109,8 @@ Run these in your own Terminal (not inside an assistant). Node must be v26.7.0: 
 ## Later
 
 - **An upgrade:** `git pull && pnpm install --frozen-lockfile && pnpm build && node dist/cli.js install`, then
-  `schedule install` again for each profile (it points the schedule at the new copy) and restart your assistant.
+  `schedule install` again for each profile (it points the schedule at the new copy) and restart your assistant. If
+  the new version changed the terms, run `setup` again: until then the daily sync downloads nothing (it still runs the
+  deletion clocks) and says why in `status`, `doctor` and a notification.
 - **Stop everything for a channel:** `node "$APP" revoke --profile <p>` (asks whether to delete the jobs too).
 - **A new channel later:** step 12, 13 and 15 for its profile.
