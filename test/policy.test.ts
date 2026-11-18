@@ -265,3 +265,39 @@ test('Testing mode: a warning from day 5 after consent until a refresh after day
     env.cleanup();
   }
 });
+
+test('a removed video never makes the channel lose its title; a fresh channel row keeps it', async () => {
+  const env = makeEnv();
+  const s = await syncedProfile(env);
+  try {
+    env.google.videos = env.google.videos.filter((v) => v.id !== 'zzVideo0002');
+    await runSync(env.ctx, s, { full: false, trigger: 'manual' });
+    for (let day = 0; day < 35; day += 7) {
+      env.clock.advanceDays(7);
+      const r = await runSync(env.ctx, s, { full: false, trigger: 'schedule' });
+      assert.equal(r.ok, true, r.error ?? '');
+    }
+    assert.equal(getMeta(s.db, 'channel_title'), 'Synthetic Channel');
+    const c = s.db.prepare('SELECT title FROM channel').get() as { title: string | null };
+    assert.equal(c.title, 'Synthetic Channel');
+  } finally {
+    s.close();
+    env.cleanup();
+  }
+});
+
+test('a purge empties only transcript folders inside ~/.claude/projects, even if config.json was edited', async () => {
+  const env = makeEnv({ answers: ['revoke en', 'no'] });
+  const s = await syncedProfile(env);
+  const outside = path.join(env.root, 'precious');
+  fs.mkdirSync(outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, 'keep.txt'), 'keep');
+  saveConfig(env.ctx.paths, { ...loadConfig(env.ctx.paths, 'darwin'), transcriptDirs: [outside] });
+  s.close();
+  try {
+    assert.equal(await cmdRevoke(env.ctx, { profile: 'en' }), 0);
+    assert.deepEqual(fs.readdirSync(outside), ['keep.txt']);
+  } finally {
+    env.cleanup();
+  }
+});

@@ -3,6 +3,7 @@
 // spent until the next Pacific midnight. Updates are single statements, safe across processes.
 
 import { openDatabase, type Db } from '../store/sqlite.ts';
+import { tightenDbFiles } from '../store/db.ts';
 import { pacificDay, nextPacificMidnight } from '../util/pacific.ts';
 import type { Clock } from '../util/clock.ts';
 
@@ -31,6 +32,7 @@ export class QuotaLedger {
   private open(): Db {
     if (!this.db) {
       this.db = openDatabase(this.file);
+      tightenDbFiles(this.file);
       this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
         CREATE TABLE IF NOT EXISTS quota (project TEXT NOT NULL, day_pt TEXT NOT NULL, bucket TEXT NOT NULL, used INTEGER NOT NULL,
           PRIMARY KEY (project, day_pt, bucket));

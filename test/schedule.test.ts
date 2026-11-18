@@ -96,3 +96,19 @@ test('the server starts a catch-up sync when the last success is older than 26 h
   assert.equal(needsCatchUp('2026-11-19T09:00:00Z', now), false);
   assert.equal(needsCatchUp('2026-11-19T07:59:00Z', now), true);
 });
+
+test('a schedule needs an existing profile, and listing profiles ignores folders without a store', async () => {
+  const env = makeEnv();
+  try {
+    const pinned = path.join(env.ctx.paths.appDir, '0.1.0', 'cli.js');
+    fs.mkdirSync(path.dirname(pinned), { recursive: true });
+    fs.writeFileSync(pinned, '// pinned');
+    env.ctx.appEntry = pinned;
+    await assert.rejects(scheduleInstall(env.ctx, 'xx', { hour: 7, minute: 30 }), /No profile "xx"/);
+    fs.mkdirSync(path.join(env.ctx.paths.profilesDir, 'ghost', 'logs'), { recursive: true });
+    const { listProfiles } = await import('../src/profile.ts');
+    assert.deepEqual(listProfiles(env.ctx), []);
+  } finally {
+    env.cleanup();
+  }
+});

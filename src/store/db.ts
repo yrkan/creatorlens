@@ -54,7 +54,7 @@ export function migrate(db: Db, file: string, backupsDir: string, now: Date): { 
   let backup: string | undefined;
   if (from > 0 && from < SCHEMA_VERSION) {
     ensureDir(backupsDir);
-    backup = path.join(backupsDir, `pre-migration-v${from}-${now.toISOString().replace(/[:.]/g, '')}.db`);
+    backup = path.join(backupsDir, `pre-migration-v${from}-${now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}.db`);
     db.exec('PRAGMA wal_checkpoint(FULL)');
     fs.copyFileSync(file, backup);
     fs.chmodSync(backup, 0o600);
@@ -70,7 +70,7 @@ export function migrate(db: Db, file: string, backupsDir: string, now: Date): { 
       throw e;
     }
   }
-  setMeta(db, 'app_version', APP_VERSION);
+  if (getMeta(db, 'app_version') !== APP_VERSION) setMeta(db, 'app_version', APP_VERSION);
   return { from, to: SCHEMA_VERSION, ...(backup ? { backup } : {}) };
 }
 

@@ -107,10 +107,10 @@ function upsertVideos(s: ProfileSession, videos: readonly VideoInfo[], uploadIds
     if (!returned.has(k.id) || !inUploads.has(k.id)) {
       s.db
         .prepare(
-          `UPDATE videos SET removed_at = ?, title = NULL, description = NULL, tags_json = NULL, default_language = NULL,
-             default_audio_language = NULL, category_id = NULL WHERE id = ?`,
+          `UPDATE videos SET removed_at = ?, metadata_expired_at = ?, title = NULL, description = NULL, tags_json = NULL,
+             default_language = NULL, default_audio_language = NULL, category_id = NULL WHERE id = ?`,
         )
-        .run(now, k.id);
+        .run(now, now, k.id);
     }
   }
 }

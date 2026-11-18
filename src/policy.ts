@@ -22,7 +22,7 @@ import { getMeta, setMeta, delMeta, logEvent } from './store/db.ts';
 import { PURGED_TABLES } from './store/schema.ts';
 import type { Db } from './store/sqlite.ts';
 import { addDays, parseIso, DAY_MS } from './util/clock.ts';
-import { fileExists, removeTree } from './util/fsx.ts';
+import { fileExists, isInside, removeTree } from './util/fsx.ts';
 import { purgePublicDb } from './store/publicDb.ts';
 import { tokenStoreOf } from './profile.ts';
 
@@ -141,10 +141,15 @@ function countFiles(dir: string): number {
   return n;
 }
 
-/** Empties the configured transcript folders (Q25). Each was validated to be one folder inside ~/.claude/projects. */
-export function purgeTranscripts(dirs: readonly string[]): number {
+/**
+ * Empties the configured transcript folders (Q25). Each is checked again here to be one folder inside
+ * ~/.claude/projects, so an edited config.json cannot point a purge anywhere else.
+ */
+export function purgeTranscripts(dirs: readonly string[], home: string): number {
   let n = 0;
+  const base = path.join(home, '.claude', 'projects');
   for (const dir of dirs) {
+    if (!isInside(dir, base) || path.resolve(dir) === path.resolve(base)) continue;
     if (!fileExists(dir)) continue;
     const st = fs.lstatSync(dir);
     if (st.isSymbolicLink() || !st.isDirectory()) continue;
@@ -195,7 +200,7 @@ export async function fullPurge(
   if (fileExists(s.pp.reports)) removeTree(s.pp.reports, s.pp.dir);
   if (fileExists(s.pp.backups)) removeTree(s.pp.backups, s.pp.dir);
   if (fileExists(s.pp.logs)) removeTree(s.pp.logs, s.pp.dir);
-  const transcriptFilesDeleted = purgeTranscripts(s.cfg.transcriptDirs);
+  const transcriptFilesDeleted = purgeTranscripts(s.cfg.transcriptDirs, ctx.homedir);
   let tokenDeleted = false;
   if (opts.deleteToken) {
     try {
@@ -235,11 +240,12 @@ export function expireMetadata(db: Db, now: Date): number {
     )
     .run(stamp, cutoff).changes;
   const n = Number(v) + Number(c);
-  if (n > 0) {
+  if (Number(c) > 0) {
+    // The channel's own title and handle expire with its row; the id stays (it binds the profile).
     delMeta(db, 'channel_title');
     delMeta(db, 'channel_handle');
-    logEvent(db, now, 'metadata_expired', `${n} rows`);
   }
+  if (n > 0) logEvent(db, now, 'metadata_expired', `${n} rows`);
   return n;
 }
 

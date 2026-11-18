@@ -70,7 +70,7 @@ export const CORE_ROUTES: readonly Route[] = [
     id: 'reporting.media.download',
     method: 'GET',
     host: HOSTS.reporting,
-    path: /^\/v1\/media\/[A-Za-z0-9_\-./%]{1,900}$/,
+    path: /^\/v1\/media\/[A-Za-z0-9_\-./%:~=+@]{1,900}$/,
     callers: BOTH,
     credential: 'bearer',
     media: true,

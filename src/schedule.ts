@@ -152,6 +152,7 @@ export async function scheduleInstall(ctx: Ctx, profile: string, time: { hour: n
     );
   }
   const pp = profilePaths(ctx.paths, profile);
+  if (!fs.existsSync(pp.store)) throw new Error(`No profile "${profile}". Sign it in first: creatorlens auth --profile ${profile}`);
   const label = launchLabel(profile);
   const file = plistPath(ctx, profile);
   const xmlText = buildPlist({ label, nodePath: ctx.execPath, appEntry: ctx.appEntry, profile, ...time, logDir: pp.logs });

@@ -459,6 +459,9 @@ export async function cmdSchedule(ctx: Ctx, f: AdminFlags, sub: string | undefin
   if (!(await confirmTyped(ctx.prompt, `Install a daily sync of profile "${name}" at ${f.time ?? '07:30'} with ${ctx.execPath} and ${ctx.appEntry}?`, `schedule ${name}`))) return 1;
   const file = await scheduleInstall(ctx, name, { hour: h, minute: m });
   ctx.out(`Installed ${file}. It also runs at login and after the Mac wakes from a missed time.`);
+  if (ctx.execPath.includes('/.nvm/')) {
+    ctx.out(`Note: this node (${ctx.execPath}) belongs to nvm. If you remove that version from nvm, run "schedule install" again; "doctor" checks it every time.`);
+  }
   return 0;
 }
 

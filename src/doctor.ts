@@ -122,6 +122,7 @@ export async function doctorProfile(ctx: Ctx, name: string, opts: { offline: boo
     }
 
     let api: GoogleApi | undefined;
+    let quota: { close(): void } | undefined;
     const tryRefresh = async (): Promise<RefreshOutcome> => {
       try {
         await api!.channelMine();
@@ -130,7 +131,11 @@ export async function doctorProfile(ctx: Ctx, name: string, opts: { offline: boo
         return e instanceof OAuthError && e.definitive ? 'definitive' : 'transient';
       }
     };
-    if (!opts.offline && bound && tokenPresent) api = makeApi(s, ctx.http()).api;
+    if (!opts.offline && bound && tokenPresent) {
+      const made = makeApi(s, ctx.http());
+      api = made.api;
+      quota = made.quota;
+    }
     const pol = await enforce(ctx, s, { network: Boolean(api), ...(api ? { tryRefresh } : {}) });
     if (pol.purged) add('policy', 'fail', `purged now: ${pol.purged.reason}`);
     const view = pol.view;
@@ -203,6 +208,7 @@ export async function doctorProfile(ctx: Ctx, name: string, opts: { offline: boo
     const sch = await scheduleStatus(ctx, name, { live: true });
     if (!sch.installed) add('schedule', 'fail', `not installed: run "creatorlens schedule install --profile ${name}"`);
     else add('schedule', sch.problems.length ? 'fail' : 'pass', sch.problems.length ? sch.problems.join('; ') : `${sch.time} daily, ${sch.nodePath} ${sch.nodeVersion ?? ''}`);
+    quota?.close();
   } catch (e) {
     add('doctor', 'fail', errorText(e));
   } finally {

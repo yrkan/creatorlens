@@ -30,6 +30,7 @@ export function listProfiles(ctx: Ctx): string[] {
     return fs
       .readdirSync(ctx.paths.profilesDir, { withFileTypes: true })
       .filter((e) => e.isDirectory() && /^[a-z0-9][a-z0-9-]{0,31}$/.test(e.name))
+      .filter((e) => fs.existsSync(`${ctx.paths.profilesDir}/${e.name}/store.db`))
       .map((e) => e.name)
       .sort();
   } catch {
